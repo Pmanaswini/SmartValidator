@@ -1,0 +1,48 @@
+// Copyright 2016 Intel Corporation
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// -----------------------------------------------------------------------------
+// The proto is taken from Hyperledger sawtooth 1.2.6 version and modified to
+// our requirement
+
+syntax = "proto3";
+
+import "transaction.proto";
+
+message BlockHeader {
+  // Block number in the chain
+  uint64 block_num = 1;
+
+  // The header_signature of the previous block that was added to the chain.
+  string previous_block_id = 2;
+
+  // List of batch.header_signatures that match the order of batches
+  // required for the block
+  repeated string transaction_ids = 3;
+
+  // The state_root_hash should match the final state_root after all
+  // transactions in the batches have been applied, otherwise the block
+  // is not valid
+  string state_root_hash = 4;
+
+  // Timestamp of block creation
+  int64 timestamp = 5;
+}
+
+message Block {
+  // The serialized version of the BlockHeader
+  bytes header = 1;
+
+  // A list of transactions
+  repeated transaction.Transaction transactions = 2;
+}

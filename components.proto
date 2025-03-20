@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package components;
+
+message componentsTable {
+  // Number of nodes in the graph
+  int32 totalComponents = 1;
+
+  // List of components, each containing a list of transactions
+  repeated component componentsList = 2;
+
+  message component {
+    // List of transaction IDs for each component
+    repeated transactionID transactionList = 1;
+    int32 assignedFollower = 2;
+  }
+
+  message transactionID {
+    int32 ID = 1;  // ID of the transaction in the block
+  }
+}

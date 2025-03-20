@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package matrix;
+
+message DirectedGraph {
+  // Number of nodes in the graph
+  int32 num_nodes = 1;
+
+  repeated MatrixRow adjacencyMatrix = 2;  // repeated edges make a row
+
+  message MatrixRow {
+    repeated int32 edges = 1;  // 1 if there is an edge and 0 if no edge
+  }
+}
