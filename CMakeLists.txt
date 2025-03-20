@@ -11,13 +11,13 @@ find_package(GTest REQUIRED)
 add_subdirectory(./googletest)
 
 set(PROTO_FILES 
-    ./protos/matrix.proto 
-    ./protos/block.proto 
-    ./protos/transaction.proto
-    ./protos/components.proto
+    ./matrix.proto 
+    ./block.proto 
+    ./transaction.proto
+    ./components.proto
 )
 
 # Generate C++ source and header files from protobuf
 protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
-add_executable(testDAGModule ./dagModule/testDAGModule.cc ${PROTO_SRCS} ${PROTO_HDRS})
+add_executable(testDAGModule ./testDAGModule.cc ${PROTO_SRCS} ${PROTO_HDRS})
 target_link_libraries(testDAGModule ${Protobuf_LIBRARIES} gtest gtest_main)
