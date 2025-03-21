@@ -217,6 +217,39 @@ TEST(DAGmoduleTest, CompleteTransaction) {
   EXPECT_EQ(dag.inDegree[2].load(), 1);
 }
 
+TEST(DAGmoduleTest, SmartValidator) {
+    DAGmodule dag;
+    
+    // Prepare mock block with transactions that have dependencies
+    Block block;
+    
+    // Transaction 1: Writes to address "1"
+    auto* txn1 = block.add_transactions();
+    *txn1 = CreateMockTransaction({}, {"1"});
+    
+    // Transaction 2: Reads from "1" and writes to "2"
+    auto* txn2 = block.add_transactions();
+    *txn2 = CreateMockTransaction({"1"}, {"2"});
+    
+    // Transaction 3: Reads from "2" and writes to "3"
+    auto* txn3 = block.add_transactions();
+    *txn3 = CreateMockTransaction({"2"}, {"3"});
+    
+    // Transaction 4: Tries to read from "1" before it's written (should fail)
+    auto* txn4 = block.add_transactions();
+    *txn4 = CreateMockTransaction({"1"}, {"4"});
+
+    std::string serializedBlock;
+    block.SerializeToString(&serializedBlock);
+
+    // Test smart validator
+    bool isValid = dag.smartValidator(serializedBlock);
+    
+    // The block should be invalid because txn4 tries to read from "1" before txn1 writes to it
+    EXPECT_FALSE(isValid);
+}
+
+
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
   //  DAGmodule dag;

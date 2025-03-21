@@ -1,4 +1,3 @@
-
 #include <pthread.h>
 
 #include <atomic>
@@ -23,6 +22,39 @@ struct TransactionStruct {
   vector<string> outputs;  // Output addresses
 };
 
+struct Node {
+  int value; 
+  Node* next;
+  Node(int val) : value(val), next(nullptr) {}
+};
+
+
+struct AddressData {
+  atomic<Node*> head{nullptr};
+  atomic<int> writeID{0};
+  
+  // Delete copy constructor and assignment operator
+  AddressData(const AddressData&) = delete;
+  AddressData& operator=(const AddressData&) = delete;
+  
+  // Allow move operations
+  AddressData(AddressData&&) noexcept = default;
+  AddressData& operator=(AddressData&&) noexcept = default;
+  
+  // Default constructor
+  AddressData() = default;
+  
+  ~AddressData() {
+    // Delete all nodes in the linked list
+    Node* current = head.load();
+    while (current != nullptr) {
+      Node* next = current->next;
+      delete current;
+      current = next;
+    }
+  }
+};
+
 class DAGmodule {
  public:
   vector<TransactionStruct> CurrentTransactions;
@@ -30,8 +62,10 @@ class DAGmodule {
   unique_ptr<std::atomic<int>[]> inDegree;
   atomic<int> completedTxns{0}, lastTxn{0};  // Global atomic counter
   int totalTxns,
-      threadCount = 28;  // threadcount can be input or set based on the cores
+      threadCount = 3;  // threadcount can be input or set based on the cores
   components::componentsTable cTable;
+  vector<unique_ptr<AddressData>> addressArray;  // Changed to vector of unique_ptr
+  static const int ADDRESS_DATA_SIZE = 2400;
 
   // Constructor
   DAGmodule() {}
@@ -268,17 +302,139 @@ class DAGmodule {
     }
   }
 
+  void append(atomic<Node *> &head, int value)
+  {
+    Node *new_node = new Node(value);
+    Node *old_head = head.load();
+    new_node->next = old_head;
+    while (!head.compare_exchange_weak(old_head, new_node))
+    {
+      new_node->next = old_head;
+    }
+  }
+
+  bool check_edge(int lastWrite, const TransactionStruct &txn)
+  {
+    // A transaction can only read from addresses that were written to by previous transactions
+    // or by itself (for write-after-read operations)
+    return lastWrite <= txn.txn_no;
+  }
+
   // Function to validate a block using a smart validator
   bool smartValidator(const std::string& blockData) {
-    Block block;
-
-    // Deserialize blockProtoData into block object
-    if (create(blockData)) {
-      // calling DAGcreate temporarily, will be replaced by smart validator
-      return true;
-    } else {
-      std::cerr << "Failed to parse block.proto data for validation.\n";
-      return false;
+    // Initialize address array with unique pointers
+    addressArray.clear();
+    addressArray.resize(ADDRESS_DATA_SIZE);
+    for (auto& addr : addressArray) {
+        addr = std::make_unique<AddressData>();
     }
+    
+    // Create DAG from block data
+    if (!create(blockData)) {
+        std::cerr << "Failed to parse block.proto data for validation.\n";
+        return false;
+    }
+
+    // Process transactions in parallel
+    vector<thread> threads(threadCount);
+    atomic<int> txn_counter{0};
+    atomic<bool> validation_failed{false};
+    atomic<int> current_txn{-1};  // Track the current transaction being processed
+
+    auto process_transactions = [this, &txn_counter, &validation_failed, &current_txn]() {
+        while (!validation_failed.load() && txn_counter.load() < totalTxns) {
+            // Find transaction with in-degree 0 using atomic operations
+            int txn_id = -1;
+            for (int i = 0; i < totalTxns; i++) {
+                if (inDegree[i].load() == 0) {
+                    int expected = 0;
+                    if (inDegree[i].compare_exchange_strong(expected, -1)) {
+                        txn_id = i;
+                        break;
+                    }
+                }
+            }
+
+            if (txn_id == -1) {
+                // No more transactions available
+                return;
+            }
+
+            TransactionStruct& txn = CurrentTransactions[txn_id];
+
+            // Check input dependencies
+            for (const auto& input : txn.inputs) {
+                if (validation_failed.load()) break;
+                int addr = stoi(input);
+                int lastWrite = addressArray[addr]->writeID.load();
+                if (!check_edge(lastWrite, txn)) {
+                    cerr << "Malicious block producer - input validation failed" << endl;
+                    validation_failed.store(true);
+                    return;
+                }
+                append(addressArray[addr]->head, txn.txn_no);
+            }
+
+            if (validation_failed.load()) continue;
+
+            // Check output dependencies
+            for (const auto& output : txn.outputs) {
+                if (validation_failed.load()) break;
+                int addr = stoi(output);
+                int lastWrite = addressArray[addr]->writeID.load();
+                
+                // Check existing write dependencies
+                if (!check_edge(lastWrite, txn)) {
+                    cerr << "Malicious block producer - output validation failed" << endl;
+                    validation_failed.store(true);
+                    return;
+                }
+
+                // Check read dependencies
+                Node* current = addressArray[addr]->head.load();
+                while (current != nullptr && !validation_failed.load()) {
+                    if (!check_edge(current->value, txn)) {
+                        cerr << "Malicious block producer - read validation failed" << endl;
+                        validation_failed.store(true);
+                        return;
+                    }
+                    current = current->next;
+                }
+
+                if (validation_failed.load()) break;
+
+                // Update write ID
+                int expected = lastWrite;
+                if (!addressArray[addr]->writeID.compare_exchange_strong(expected, txn.txn_no)) {
+                    cerr << "Malicious block producer - write conflict" << endl;
+                    validation_failed.store(true);
+                    return;
+                }
+            }
+
+            if (!validation_failed.load()) {
+                complete(txn.txn_no);
+                txn_counter.fetch_add(1);
+            }
+        }
+    };
+
+    // Create and start threads
+    for (int i = 0; i < threadCount; i++) {
+        threads[i] = thread(process_transactions);
+    }
+
+    // Wait for all threads to complete
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    // Check if validation failed
+    if (validation_failed.load()) {
+        return false;
+    }
+
+    // Verify all transactions were processed
+    return txn_counter.load() == totalTxns;
   }
 };
