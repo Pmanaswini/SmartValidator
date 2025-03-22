@@ -234,18 +234,48 @@ TEST(DAGmoduleTest, SmartValidator) {
     // Transaction 3: Reads from "2" and writes to "3"
     auto* txn3 = block.add_transactions();
     *txn3 = CreateMockTransaction({"2"}, {"3"});
-    
-    // Transaction 4: Tries to read from "1" before it's written (should fail)
-    auto* txn4 = block.add_transactions();
-    *txn4 = CreateMockTransaction({"1"}, {"4"});
 
     std::string serializedBlock;
     block.SerializeToString(&serializedBlock);
 
+    dag.create(serializedBlock);
+
     // Test smart validator
-    bool isValid = dag.smartValidator(serializedBlock);
+    bool isValid = dag.executeValidator();
     
-    // The block should be invalid because txn4 tries to read from "1" before txn1 writes to it
+    EXPECT_TRUE(isValid);
+}
+
+TEST(DAGmoduleTest, SmartValidator_InvalidDAG) {
+    DAGmodule dag;
+    
+    // Prepare mock block with valid transactions
+    Block block;
+    
+    // Transaction 1: Writes to address "1"
+    auto* txn1 = block.add_transactions();
+    *txn1 = CreateMockTransaction({}, {"1"});
+    
+    // Transaction 2: Reads from "1" and writes to "2"
+    auto* txn2 = block.add_transactions();
+    *txn2 = CreateMockTransaction({"1"}, {"2"});
+    
+    // Transaction 3: Reads from "2" and writes to "3"
+    auto* txn3 = block.add_transactions();
+    *txn3 = CreateMockTransaction({"2"}, {"3"});
+
+    std::string serializedBlock;
+    block.SerializeToString(&serializedBlock);
+
+    dag.create(serializedBlock);
+
+    // Modify adjacency matrix to create invalid dependencies
+    // Make transaction 3 depend on transaction 1 (creating a cycle)
+    dag.adjacencyMatrix[2][0] = 1;
+    dag.inDegree[0].store(1); // Add dependency count
+
+    // Test smart validator with invalid DAG
+    bool isValid = dag.executeValidator();
     EXPECT_FALSE(isValid);
 }
 
