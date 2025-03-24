@@ -31,7 +31,7 @@ struct Node {
 
 struct AddressData {
   atomic<Node*> head{nullptr};
-  atomic<int> writeID{0};
+  atomic<int> writeID{-1}; // Initialize writeID to -1
   
   // Delete copy constructor and assignment operator
   AddressData(const AddressData&) = delete;
@@ -62,7 +62,7 @@ class DAGmodule {
   unique_ptr<std::atomic<int>[]> inDegree;
   atomic<int> completedTxns{0}, lastTxn{0};  // Global atomic counter
   int totalTxns,
-      threadCount = 3;  // threadcount can be input or set based on the cores
+      threadCount = 1;  // threadcount can be input or set based on the cores
   components::componentsTable cTable;
   vector<unique_ptr<AddressData>> addressArray;  // Changed to vector of unique_ptr
   static const int ADDRESS_DATA_SIZE = 2400;
@@ -99,60 +99,79 @@ class DAGmodule {
   }
 
   void dependencyMatrix(int PID) {
-    int txnAssigned, chunk = floor(totalTxns / threadCount),
-                     rem = totalTxns % threadCount;
-    int start = PID * (chunk + 1), end = start + chunk;
-    bool flag = false;
-
-    for (int i = start; i <= end; i++) {
-      txnAssigned = i;
-
-      if (txnAssigned >= totalTxns) {
+    int txn, inp_lo, out_lo;
+    while (true) {
+      txn = lastTxn.fetch_add(1);
+      if (txn >= totalTxns) {
+        lastTxn.fetch_sub(1);
         return;
       }
-      // Check dependencies
-      for (int i = txnAssigned + 1; i < totalTxns; i++) {
-        flag = false;
-        // Check for input-output dependencies
-        for (int j = 0; j < CurrentTransactions[txnAssigned].inputscount; j++) {
-          for (int k = 0; k < CurrentTransactions[i].outputcount; k++) {
-            if (CurrentTransactions[txnAssigned].inputs[j] ==
-                CurrentTransactions[i].outputs[k]) {
-              flag = true;  // Dependency found
-            }
-          }
-        }
 
-        // Check for output-input dependencies
-        if (!flag) {  // Only check if the previous check did not find a
-                      // dependency
-          for (int j = 0; j < CurrentTransactions[txnAssigned].outputcount;
-               j++) {
-            for (int k = 0; k < CurrentTransactions[i].inputscount; k++) {
-              if (CurrentTransactions[txnAssigned].outputs[j] ==
-                  CurrentTransactions[i].inputs[k]) {
-                flag = true;  // Dependency found
-              }
-            }
-          }
-        }
+      inp_lo = CurrentTransactions[txn].inputscount;
+      out_lo = CurrentTransactions[txn].outputcount;
+      
+      // Check input dependencies against previous transactions' outputs
+      for (int j = 0; j < inp_lo; j++) {
+        bool flag = false;
+        int txn2;
+        
+        for (int i = txn - 1; i >= 0 && !flag; i--) {
+          if (inDegree[i] > -1) {
+            int out_ex = CurrentTransactions[i].outputcount;
 
-        // Check for output-output dependencies
-        if (!flag) {  // Only check if no previous dependency was found
-          for (int j = 0; j < CurrentTransactions[txnAssigned].outputcount;
-               j++) {
-            for (int k = 0; k < CurrentTransactions[i].outputcount; k++) {
-              if (CurrentTransactions[txnAssigned].outputs[j] ==
-                  CurrentTransactions[i].outputs[k]) {
-                flag = true;  // Dependency found
+            for (int k = 0; k < out_ex; k++) {
+              if (CurrentTransactions[txn].inputs[j] == CurrentTransactions[i].outputs[k]) {
+                flag = true;
+                txn2 = i;
+                break;
               }
             }
           }
         }
 
         if (flag) {
-          adjacencyMatrix[txnAssigned][i] = 1;
-          inDegree[i].fetch_add(1, std::memory_order_relaxed);
+          if (adjacencyMatrix[CurrentTransactions[txn2].txn_no][txn] == 0) {
+            adjacencyMatrix[CurrentTransactions[txn2].txn_no][txn] = 1;
+            inDegree[txn].fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      }
+
+      // Check output dependencies against previous transactions
+      for (int j = 0; j < out_lo; j++) {
+        bool flag = false;
+        int txn2;
+        
+        for (int i = txn - 1; i >= 0 && !flag; i--) {
+          if (inDegree[i] > -1) {
+            int inp_ex = CurrentTransactions[i].inputscount;
+            int out_ex = CurrentTransactions[i].outputcount;
+
+            // Check against outputs
+            for (int k = 0; k < out_ex; k++) {
+              if (CurrentTransactions[txn].outputs[j] == CurrentTransactions[i].outputs[k]) {
+                flag = true;
+                txn2 = i;
+                break;
+              }
+            }
+
+            // Check against inputs
+            for (int k = 0; k < inp_ex && !flag; k++) {
+              if (CurrentTransactions[txn].outputs[j] == CurrentTransactions[i].inputs[k]) {
+                flag = true;
+                txn2 = i;
+                break;
+              }
+            }
+          }
+        }
+
+        if (flag) {
+          if (adjacencyMatrix[CurrentTransactions[txn2].txn_no][txn] == 0) {
+            adjacencyMatrix[CurrentTransactions[txn2].txn_no][txn] = 1; 
+            inDegree[txn].fetch_add(1, std::memory_order_relaxed);
+          }
         }
       }
     }
@@ -315,10 +334,9 @@ class DAGmodule {
 
   bool check_edge(int lastWrite, const TransactionStruct &txn)
   {
-    // A transaction can read from addresses that were written to by previous transactions
-    // The lastWrite should be less than or equal to the current transaction number
-    // This allows initial writes (where lastWrite == txn_no)
-    return lastWrite <= txn.txn_no;
+    // Only check edge if lastWrite has been set (> -1)
+    // This allows initial writes where lastWrite is still -1
+    return lastWrite <= -1 || lastWrite <= txn.txn_no;
   }
 
   // Function to validate a single transaction

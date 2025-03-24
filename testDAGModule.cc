@@ -3,7 +3,7 @@
 #include "DAGmodule.h"  // Include the header file for the class to be tested
 
 // Helper function to create a mock Transaction
-transaction::Transaction CreateMockTransaction(
+transaction::Transaction  CreateMockTransaction(
     const std::vector<std::string>& inputs,
     const std::vector<std::string>& outputs) {
   transaction::Transaction transaction;
@@ -92,6 +92,7 @@ TEST(DAGmoduleTest, DependencyMatrix_SingleTransaction) {
 
   // Validate the adjacency matrix and in-degrees
   EXPECT_EQ(dag.adjacencyMatrix[0][0], 0);
+  // Print out adjacency matrix for single transaction case
   EXPECT_EQ(dag.inDegree[0].load(), 0);
 }
 
@@ -218,32 +219,22 @@ TEST(DAGmoduleTest, CompleteTransaction) {
 }
 
 TEST(DAGmoduleTest, SmartValidator) {
-    DAGmodule dag;
-    
-    // Prepare mock block with transactions that have dependencies
-    Block block;
-    
-    // Transaction 1: Writes to address "1"
-    auto* txn1 = block.add_transactions();
-    *txn1 = CreateMockTransaction({}, {"1"});
-    
-    // Transaction 2: Reads from "1" and writes to "2"
-    auto* txn2 = block.add_transactions();
-    *txn2 = CreateMockTransaction({"1"}, {"2"});
-    
-    // Transaction 3: Reads from "2" and writes to "3"
-    auto* txn3 = block.add_transactions();
-    *txn3 = CreateMockTransaction({"2"}, {"3"});
+  DAGmodule dag;
+  // Prepare mock block
+  Block block;
+  auto* txn1 = block.add_transactions();
+  *txn1 = CreateMockTransaction({"1"}, {"2"});
 
-    std::string serializedBlock;
-    block.SerializeToString(&serializedBlock);
+  auto* txn2 = block.add_transactions();
+  *txn2 = CreateMockTransaction({"2"}, {"3"});
 
-    dag.create(serializedBlock);
+  std::string serializedBlock;
+  block.SerializeToString(&serializedBlock);
 
-    // Test smart validator
-    bool isValid = dag.executeValidator();
-    
-    EXPECT_TRUE(isValid);
+  // Test DAG creation
+  bool success = dag.create(serializedBlock);
+  bool isValid = dag.executeValidator();
+  EXPECT_TRUE(isValid);  
 }
 
 TEST(DAGmoduleTest, SmartValidator_InvalidDAG) {
