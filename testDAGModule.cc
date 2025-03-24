@@ -237,6 +237,30 @@ TEST(DAGmoduleTest, SmartValidator) {
   EXPECT_TRUE(isValid);  
 }
 
+TEST(DAGmoduleTest, SmartValidator_RWR) {
+  DAGmodule dag;
+  // Prepare mock block
+  Block block;
+  auto* txn1 = block.add_transactions();
+  *txn1 = CreateMockTransaction({"1"}, {});
+
+  auto* txn2 = block.add_transactions();
+  *txn2 = CreateMockTransaction({"2"}, {"1"});
+
+
+    auto* txn3 = block.add_transactions();
+  *txn3 = CreateMockTransaction({"2"}, {"1"});
+
+  std::string serializedBlock;
+  block.SerializeToString(&serializedBlock);
+
+  // Test DAG creation
+  bool success = dag.create(serializedBlock);
+  bool isValid = dag.executeValidator();
+  EXPECT_TRUE(isValid);  
+}
+
+
 TEST(DAGmoduleTest, SmartValidator_InvalidDAG) {
     DAGmodule dag;
     
