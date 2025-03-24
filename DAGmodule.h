@@ -309,7 +309,7 @@ class DAGmodule {
     } else {
       return;
     }
-    if (inDegree[txnID].load() >= -1) {
+    
       for (int i = txnID + 1; i < totalTxns; i++) {
         if (adjacencyMatrix[txnID][i] ==
             1) {  // If there is a dependency from txn_id to j
@@ -318,7 +318,6 @@ class DAGmodule {
           }
         }
       }
-    }
   }
 
   void append(atomic<Node *> &head, int value)
@@ -336,7 +335,7 @@ class DAGmodule {
   {
     // Only check edge if lastWrite has been set (> -1)
     // This allows initial writes where lastWrite is still -1
-    return lastWrite <= -1 || lastWrite <= txn.txn_no;
+    return lastWrite <= -1 || adjacencyMatrix[lastWrite][txn.txn_no]==1;
   }
 
   // Function to validate a single transaction
@@ -460,12 +459,14 @@ class DAGmodule {
                 }
             }
 
-            if (txn_id == -1) {
-                // No more transactions available
+            if (txn_id != -1) {
+              validateTransaction(txn_id, txn_counter, validation_failed);
+          }
+    
+            if (txn_counter.load() == totalTxns) {
+              // No more transactions available
                 return;
-            }
-
-            validateTransaction(txn_id, txn_counter, validation_failed);
+            }    
         }
     };
 

@@ -245,7 +245,7 @@ TEST(DAGmoduleTest, SmartValidator_InvalidDAG) {
     
     // Transaction 1: Writes to address "1"
     auto* txn1 = block.add_transactions();
-    *txn1 = CreateMockTransaction({}, {"1"});
+    *txn1 = CreateMockTransaction({"2"}, {"1"});
     
     // Transaction 2: Reads from "1" and writes to "2"
     auto* txn2 = block.add_transactions();
@@ -259,11 +259,10 @@ TEST(DAGmoduleTest, SmartValidator_InvalidDAG) {
     block.SerializeToString(&serializedBlock);
 
     dag.create(serializedBlock);
-
     // Modify adjacency matrix to create invalid dependencies
     // Make transaction 3 depend on transaction 1 (creating a cycle)
-    dag.adjacencyMatrix[2][0] = 1;
-    dag.inDegree[0].store(1); // Add dependency count
+    dag.adjacencyMatrix[0][1] = 0;
+    dag.inDegree[1].fetch_sub(1); // Add dependency count
 
     // Test smart validator with invalid DAG
     bool isValid = dag.executeValidator();
