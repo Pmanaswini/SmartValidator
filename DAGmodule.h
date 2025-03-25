@@ -387,6 +387,13 @@ class DAGmodule {
             validation_failed.store(true);
             return false;
         }
+
+        Node* oldHead = addressArray[addr]->head.exchange(nullptr);
+        while (oldHead != nullptr) {
+          Node* temp = oldHead;
+          oldHead = oldHead->next;
+          delete temp;
+        }
     }
 
     if (!validation_failed.load()) {
@@ -397,11 +404,23 @@ class DAGmodule {
     return true;
   }
 
+  bool checkCircular() {
+    // Check if adjacency matrix is circular by verifying bottom triangular is all zeros
+    int n = adjacencyMatrix.size();
+    for (int i = 0; i < n; i++) {
+      for (int j = 0; j <= i; j++) {
+        if (adjacencyMatrix[i][j] != 0) {
+          return true; 
+        }
+      }
+    }
+    return false; 
+  }
+
   // Function to validate a block using a smart validator
   bool smartValidator() {
     // Initialize address array with unique pointers
-    addressArray.clear();
-    addressArray.resize(ADDRESS_DATA_SIZE);
+   
     for (auto& addr : addressArray) {
         addr = std::make_unique<AddressData>();
     }
@@ -433,6 +452,11 @@ class DAGmodule {
 
   // Function to execute the validator with multiple threads
   bool executeValidator() {
+    if (checkCircular()) {
+        cerr << "Cannot validate: Circular dependency detected in transaction graph" << endl;
+        return false;
+    }
+
     // Initialize address array with unique pointers
     addressArray.clear();
     addressArray.resize(ADDRESS_DATA_SIZE);

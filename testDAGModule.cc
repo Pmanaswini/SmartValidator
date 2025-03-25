@@ -248,7 +248,7 @@ TEST(DAGmoduleTest, SmartValidator_RWR) {
   *txn2 = CreateMockTransaction({"2"}, {"1"});
 
 
-    auto* txn3 = block.add_transactions();
+  auto* txn3 = block.add_transactions();
   *txn3 = CreateMockTransaction({"2"}, {"1"});
 
   std::string serializedBlock;
@@ -259,6 +259,7 @@ TEST(DAGmoduleTest, SmartValidator_RWR) {
   bool isValid = dag.executeValidator();
   EXPECT_TRUE(isValid);  
 }
+
 
 
 TEST(DAGmoduleTest, SmartValidator_InvalidDAG) {
